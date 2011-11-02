@@ -91,65 +91,78 @@ void loop(void)
     }
     else
     {
+        // if we are recording and the note hasn't changed
         if (recording && !saved)
         {
-            // RECORD NOTE
+            // crop off the top two bits to make the note fit in an 8 bit memory address
             int readingLess = reading / 4;
+
+            // store the note in the eeprom
             eeprom_write_byte((uint8_t *) noteSlot, (uint8_t) readingLess);
 
+            // move to the next eeprom location
             noteSlot++;
+
+            // if the eeprom is full
             if (noteSlot > 60)
             {
+                // stop recording & reset to the beginning of the recording
                 recording = FALSE;
                 noteSlot = 0;
-                bit_flip(PORTB, LED_REC);
+
+                // turn the recording LED Off
+                bit_set(PORTB, LED_REC);
             }
             else
             {
+                // mark the current note as saved
                 saved = 1;
             }
         }
 
-
+        // turn the TOUCH LED off
         bit_set(PORTB, LED_TOUCH);
-        if (recording) bit_set(PORTB, LED_REC);
-        if ((reading <= 310)) // RECORD
-        {
-            // DEBOUNCE
-            _delay_ms(50);
-            if (adc_read() == reading)
-            {
-                // Debounce ok, toggle recording mode
-                recording = !recording;
-                if (!recording)
-                {
-                    noteSlot++;
-                    eeprom_write_byte((uint8_t *) noteSlot, (uint8_t) 0);
-                }
-                noteSlot = 0;
-                //bit_flip(PORTB, LED_REC);
 
-                while (adc_read() > 128)
-                {
-                }
-            }
-        }
-        else if ((reading <= 340)) // PLAY
+        // if we are recording, turn the RED LED off (why here?)
+        if (recording) bit_set(PORTB, LED_REC);
+
+        // average out the reading over a few samples to make sure it is correct
+        _delay_ms(50);
+        reading = reading + adc_read() + adc_read() + adc_read() / 4;
+
+        if ((reading <= 310)) // Record button was pressed
         {
+            // Toggle Recording Mode
+            recording = !recording;
+
+            // If we are finished recording
             if (!recording)
             {
-                _delay_ms(2);
-                int secondRead = adc_read();
-                if (secondRead == reading || secondRead == reading + 1 || secondRead == reading - 1 || secondRead == reading + 2 || secondRead == reading - 2)
-                {
-                    // Debounce ok, start playing
-                    playing = 1;
-                    noteSlot = 0;
-                    bit_clear(PORTB, LED_REC);
-                }
-                while (adc_read() > 128)
-                {
-                }
+                // add a '0' to the end of the recording, to make sure the playback is turned off
+                noteSlot++;
+                eeprom_write_byte((uint8_t *) noteSlot, (uint8_t) 0);
+            }
+
+            // reset our 'pointer' to the beginning of the eeprom
+            noteSlot = 0;
+
+            // wait for the button to be released
+            while (adc_read() > 128);
+        }
+        else if ((reading <= 340)) // Play button was pressed
+        {
+            // we cant play while recording
+            if (!recording)
+            {
+                // start playing back from the beginning of the eeprom
+                playing = TRUE;
+                noteSlot = 0;
+
+                // turn on the REC LED
+                bit_clear(PORTB, LED_REC);
+
+                // wait for the button to be released
+                while (adc_read() > 128);
             }
         }
         else if ((reading <= 359))
@@ -244,7 +257,7 @@ void loop(void)
         if (noteSlot > 60 || reading == 0)
         {
             noteSlot = 0;
-            playing = 0;
+            playing = FALSE;
             bit_set(PORTB, LED_REC);
         }
     }
@@ -258,8 +271,7 @@ void loop(void)
 void playnote(uint8_t a)
 {
     OCR0A = a;
-    OCR0B = a / 2;
-    //OCR0B=a;
+    OCR0B = 0;
 }
 
 void dontplay()
